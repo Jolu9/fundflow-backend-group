@@ -39,4 +39,14 @@ class User extends Authenticatable
     {
         return $this->hasMany(Loan::class);
     }
+
+    public function communities()
+    {
+        return $this->belongsToMany(Community::class, 'community_user')->withPivot('role')->withTimestamps();
+    }
+
+    public function joinRequests()
+    {
+        return $this->hasMany(JoinRequest::class);
+    }
 }
