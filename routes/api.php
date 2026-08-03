@@ -6,9 +6,12 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\LoanController;
 use App\Http\Controllers\ContributionController;
 use App\Http\Controllers\ContributionRequestController;
+use App\Http\Controllers\RepaymentRequestController;
 use App\Http\Controllers\CommunityController;
 use App\Http\Controllers\JoinRequestController;
 use App\Http\Controllers\CommunityRequestController;
+use App\Http\Controllers\ExportController;
+use App\Http\Controllers\CycleController;
 
 // Public routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -18,25 +21,17 @@ Route::post('/register', function (\Illuminate\Http\Request $request) {
         'name' => 'required|string|max:255',
         'email' => 'required|email|unique:users,email',
         'password' => 'required|string|min:6',
-        'invite_code' => 'nullable|string',
+        'phone' => 'nullable|string',
     ]);
 
     $user = \App\Models\User::create([
         'name' => $request->name,
         'email' => $request->email,
         'password' => \Illuminate\Support\Facades\Hash::make($request->password),
+        'phone' => $request->phone,
         'role' => 'member',
         'status' => 'active',
     ]);
-
-    $joinedCommunity = null;
-    if ($request->invite_code) {
-        $community = \App\Models\Community::where('invite_code', $request->invite_code)->first();
-        if ($community) {
-            $community->members()->attach($user->id, ['role' => 'member']);
-            $joinedCommunity = $community;
-        }
-    }
 
     $token = $user->createToken('auth_token')->plainTextToken;
 
@@ -44,7 +39,6 @@ Route::post('/register', function (\Illuminate\Http\Request $request) {
         'token' => $token,
         'role' => $user->role,
         'user' => $user,
-        'community' => $joinedCommunity,
     ], 201);
 });
 
@@ -59,7 +53,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
 
-    // Join community by invite code (after registration)
     Route::post('/communities/join-by-code', function (\Illuminate\Http\Request $request) {
         $request->validate(['invite_code' => 'required|string']);
 
@@ -69,14 +62,29 @@ Route::middleware('auth:sanctum')->group(function () {
             return response()->json(['message' => 'Invalid invite code.'], 404);
         }
 
-        $alreadyMember = $community->members()->where('user_id', $request->user()->id)->exists();
+        $userId = $request->user()->id;
+
+        $alreadyMember = $community->members()->where('user_id', $userId)->exists();
         if ($alreadyMember) {
             return response()->json(['message' => 'You are already a member of this community.'], 409);
         }
 
-        $community->members()->attach($request->user()->id, ['role' => 'member']);
+        $existing = \App\Models\JoinRequest::where('user_id', $userId)
+            ->where('community_id', $community->id)
+            ->whereIn('status', ['pending', 'approved'])
+            ->first();
 
-        return response()->json(['message' => 'Joined successfully.', 'community' => $community]);
+        if ($existing) {
+            return response()->json(['message' => 'You already have a pending or approved request for this group.'], 409);
+        }
+
+        \App\Models\JoinRequest::create([
+            'community_id' => $community->id,
+            'user_id' => $userId,
+            'status' => 'pending',
+        ]);
+
+        return response()->json(['message' => 'Request sent. Awaiting treasurer approval.'], 201);
     });
 
     // Users & Loans
@@ -90,19 +98,27 @@ Route::middleware('auth:sanctum')->group(function () {
             'purpose' => 'required|string',
         ]);
 
-        $communityUser = \Illuminate\Support\Facades\DB::table('community_user')
-            ->where('user_id', $request->user()->id)
-            ->first();
+        $communityId = $request->user()->communities()->first()?->id;
+
+        if (!$communityId) {
+            $communityId = \Illuminate\Support\Facades\DB::table('community_user')
+                ->where('user_id', $request->user()->id)
+                ->value('community_id');
+        }
+
+        if (!$communityId) {
+            return response()->json(['message' => 'You are not a member of any community.'], 422);
+        }
 
         $loan = \App\Models\Loan::create([
-            'user_id' => $request->user()->id,
-            'community_id' => $communityUser?->community_id ?? null,
-            'amount' => $request->amount,
+            'user_id'       => $request->user()->id,
+            'community_id'  => $communityId,
+            'amount'        => $request->amount,
             'interest_rate' => 0,
-            'total_due' => $request->amount,
-            'amount_paid' => 0,
-            'status' => 'pending',
-            'purpose' => $request->purpose,
+            'total_due'     => $request->amount,
+            'amount_paid'   => 0,
+            'status'        => 'pending',
+            'purpose'       => $request->purpose,
         ]);
 
         return response()->json($loan, 201);
@@ -115,10 +131,15 @@ Route::middleware('auth:sanctum')->group(function () {
         );
     });
 
-    // Repayments
+    // Repayments (treasurer direct entry — instant, trusted)
     Route::get('/repayments', function (\Illuminate\Http\Request $request) {
+        $communityId = $request->user()->communities()->first()?->id;
+        $loanIds = \App\Models\Loan::where('community_id', $communityId)->pluck('id');
         return response()->json(
-            \App\Models\Repayment::with('loan.user', 'recordedBy')->latest()->get()
+            \App\Models\Repayment::with('loan.user', 'recordedBy')
+                ->whereIn('loan_id', $loanIds)
+                ->latest()
+                ->get()
         );
     });
 
@@ -130,10 +151,10 @@ Route::middleware('auth:sanctum')->group(function () {
         ]);
 
         $repayment = \App\Models\Repayment::create([
-            'loan_id' => $request->loan_id,
+            'loan_id'     => $request->loan_id,
             'recorded_by' => $request->user()->id,
-            'amount' => $request->amount,
-            'notes' => $request->notes,
+            'amount'      => $request->amount,
+            'notes'       => $request->notes,
         ]);
 
         $loan = \App\Models\Loan::find($request->loan_id);
@@ -146,13 +167,20 @@ Route::middleware('auth:sanctum')->group(function () {
         return response()->json($repayment->load('loan.user', 'recordedBy'), 201);
     });
 
-    // Member repayments
+    // Member repayments — confirmed history only
     Route::get('/member/repayments', function (\Illuminate\Http\Request $request) {
         $loanIds = \App\Models\Loan::where('user_id', $request->user()->id)->pluck('id');
         return response()->json(
             \App\Models\Repayment::whereIn('loan_id', $loanIds)->with('loan', 'recordedBy')->latest()->get()
         );
     });
+
+    // Repayment Requests
+    Route::get('/repayment-requests/mine', [RepaymentRequestController::class, 'mine']);
+    Route::get('/repayment-requests', [RepaymentRequestController::class, 'index']);
+    Route::post('/repayment-requests', [RepaymentRequestController::class, 'store']);
+    Route::post('/repayment-requests/{id}/confirm', [RepaymentRequestController::class, 'confirm']);
+    Route::post('/repayment-requests/{id}/reject', [RepaymentRequestController::class, 'reject']);
 
     // Contributions
     Route::get('/contributions', [ContributionController::class, 'index']);
@@ -173,40 +201,29 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Export
-    Route::get('/export/loans', function () {
-        $loans = \App\Models\Loan::with('user')->get();
-        $filename = 'fundflow-loans-' . date('Y-m-d') . '.csv';
-        $headers = [
-            'Content-Type' => 'text/csv',
-            'Content-Disposition' => "attachment; filename={$filename}",
-        ];
-        $callback = function () use ($loans) {
-            $file = fopen('php://output', 'w');
-            fputcsv($file, ['Member', 'Amount (K)', 'Interest Rate (%)', 'Total Due (K)', 'Amount Paid (K)', 'Remaining (K)', 'Due Date', 'Status', 'Applied On']);
-            foreach ($loans as $loan) {
-                fputcsv($file, [
-                    $loan->user->name ?? 'Unknown',
-                    $loan->amount,
-                    $loan->interest_rate,
-                    $loan->total_due,
-                    $loan->amount_paid,
-                    $loan->total_due - $loan->amount_paid,
-                    $loan->due_date,
-                    $loan->status,
-                    $loan->created_at->format('Y-m-d'),
-                ]);
-            }
-            fclose($file);
-        };
-        return response()->stream($callback, 200, $headers);
+    Route::get('/export/report', [ExportController::class, 'report']);
+
+    // Cycles (Chilimba)
+    Route::get('/cycles', [CycleController::class, 'index']);
+    Route::post('/cycles', [CycleController::class, 'store']);
+    Route::post('/cycles/contribution-amount', [CycleController::class, 'setContributionAmount']);
+    Route::post('/cycles/toggle-chilimba', [CycleController::class, 'toggleChilimba']);
+    Route::post('/cycles/{id}/assign', [CycleController::class, 'assignRecipient']);
+    Route::post('/cycles/{id}/complete', [CycleController::class, 'complete']);
+    Route::get('/member/cycles', [CycleController::class, 'memberCycles']);
+
+    // Communities
+    Route::get('/communities/my', [CommunityController::class, 'myCommunities']);
+
+    Route::get('/communities/explore', function () {
+        return \App\Models\Community::withCount(['members as member_count' => function ($q) {
+            $q->where('community_user.role', 'member');
+        }])->get(['id', 'name', 'description']);
     });
 
-    // Communities — order matters: specific routes before {id}
-    Route::get('/communities/my', [CommunityController::class, 'myCommunities']);
     Route::get('/communities', [CommunityController::class, 'index']);
     Route::post('/communities', [CommunityController::class, 'store']);
 
-    // Self-serve: create community and become treasurer
     Route::post('/communities/create', function (\Illuminate\Http\Request $request) {
         $request->validate([
             'name' => 'required|string|max:255',
@@ -232,7 +249,6 @@ Route::middleware('auth:sanctum')->group(function () {
         ], 201);
     });
 
-    // Treasurer: generate invite code
     Route::post('/communities/{id}/generate-invite', function ($id) {
         $community = \App\Models\Community::findOrFail($id);
         $code = strtoupper(\Illuminate\Support\Str::random(8));
@@ -246,12 +262,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/communities/{id}/remove-member', [CommunityController::class, 'removeMember']);
     Route::get('/users/{id}/activity', [CommunityController::class, 'userActivity']);
 
-    // Join Requests
+    Route::get('/join-requests/mine', function (\Illuminate\Http\Request $request) {
+        return \App\Models\JoinRequest::where('user_id', $request->user()->id)->get();
+    });
     Route::get('/join-requests', [JoinRequestController::class, 'index']);
     Route::post('/join-requests', [JoinRequestController::class, 'store']);
     Route::patch('/join-requests/{id}', [JoinRequestController::class, 'update']);
 
-    // Community Requests
     Route::get('/community-requests', [CommunityRequestController::class, 'index']);
     Route::post('/community-requests', [CommunityRequestController::class, 'store']);
     Route::post('/community-requests/{id}/approve', [CommunityRequestController::class, 'approve']);

@@ -17,9 +17,13 @@ class ContributionRequestController extends Controller
             'reference_note' => 'nullable|string',
         ]);
 
-        $communityId = DB::table('community_user')
-            ->where('user_id', Auth::id())
-            ->value('community_id');
+        $communityId = Auth::user()->communities()->first()?->id;
+
+        if (!$communityId) {
+            $communityId = DB::table('community_user')
+                ->where('user_id', Auth::id())
+                ->value('community_id');
+        }
 
         $req = \App\Models\ContributionRequest::create([
             'user_id' => Auth::id(),
@@ -35,9 +39,13 @@ class ContributionRequestController extends Controller
     // Treasurer: get pending requests for their community
     public function index(Request $request)
     {
-        $communityId = DB::table('community_user')
-            ->where('user_id', Auth::id())
-            ->value('community_id');
+        $communityId = Auth::user()->communities()->first()?->id;
+
+        if (!$communityId) {
+            $communityId = DB::table('community_user')
+                ->where('user_id', Auth::id())
+                ->value('community_id');
+        }
 
         return \App\Models\ContributionRequest::with('user')
             ->where('community_id', $communityId)
@@ -46,7 +54,7 @@ class ContributionRequestController extends Controller
             ->get();
     }
 
-    // Treasurer: confirm a request → creates actual contribution
+    // Treasurer: confirm a request -> creates actual contribution
     public function confirm($id)
     {
         $req = \App\Models\ContributionRequest::findOrFail($id);

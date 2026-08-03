@@ -9,10 +9,17 @@ use Illuminate\Support\Facades\DB;
 
 class ContributionController extends Controller
 {
-    // Treasurer: get all contributions
+    // Treasurer: get contributions for their community only
     public function index()
     {
-        return Contribution::with(['user', 'recorder'])->orderBy('contribution_date', 'desc')->get();
+        $communityId = DB::table('community_user')
+            ->where('user_id', Auth::id())
+            ->value('community_id');
+
+        return Contribution::with(['user', 'recorder'])
+            ->where('community_id', $communityId)
+            ->orderBy('contribution_date', 'desc')
+            ->get();
     }
 
     // Treasurer: record a contribution manually

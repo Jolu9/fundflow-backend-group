@@ -8,13 +8,13 @@ use Illuminate\Http\Request;
 
 class CommunityController extends Controller
 {
-    // Admin: get all communities
     public function index()
     {
-        return Community::with('creator', 'members')->get();
+        return Community::with(['members' => function ($q) {
+            $q->withPivot('role');
+        }])->get();
     }
 
-    // Admin: create a community
     public function store(Request $request)
     {
         $request->validate([
@@ -29,39 +29,58 @@ class CommunityController extends Controller
             'created_by' => auth()->id(),
         ]);
 
-        // Attach treasurer
         $community->members()->attach($request->treasurer_id, ['role' => 'treasurer']);
 
-        return response()->json($community->load('members'), 201);
+        return response()->json($community->load(['members' => function ($q) {
+            $q->withPivot('role');
+        }]), 201);
     }
 
-    // Get a single community with members
     public function show(int $id)
     {
-        $community = Community::with('members')->findOrFail($id);
+        $community = Community::with(['members' => function ($q) {
+            $q->withPivot('role');
+        }])->findOrFail($id);
         return response()->json($community);
     }
 
-    // Admin: delete a community
     public function destroy(int $id)
     {
         Community::findOrFail($id)->delete();
         return response()->json(['message' => 'Community deleted']);
     }
 
-    // Get communities for the logged in user
     public function myCommunities(Request $request)
     {
         $user = $request->user();
 
-        if ($user->role === 'admin') {
-            return Community::with('members')->get();
-        }
+        $communities = $user->role === 'admin'
+            ? Community::with(['members' => function ($q) {
+                $q->withPivot('role');
+            }])->get()
+            : $user->communities()->with(['members' => function ($q) {
+                $q->withPivot('role');
+            }])->get();
 
-        return $user->communities()->with('members')->get();
+        return $communities->map(function ($community) {
+            $loans = $community->loans;
+            $contributions = $community->contributions;
+
+            $totalContributed = $contributions->sum('amount');
+            $totalDisbursed = $loans->whereNotIn('status', ['pending', 'rejected'])->sum('amount');
+            $totalRepaid = $loans->sum('amount_paid');
+            $currentFund = max(0, $totalContributed + $totalRepaid - $totalDisbursed);
+
+            $data = $community->toArray();
+            $data['fund_summary'] = [
+                'current_fund' => $currentFund,
+                'total_contributed' => $totalContributed,
+                'total_disbursed' => $totalDisbursed,
+            ];
+            return $data;
+        });
     }
 
-    // Admin: add a member to a community
     public function addMember(Request $request, int $id)
     {
         $request->validate([
@@ -76,7 +95,6 @@ class CommunityController extends Controller
         return response()->json(['message' => 'Member added']);
     }
 
-    // Admin: remove a member from a community
     public function removeMember(Request $request, int $id)
     {
         $request->validate([
@@ -89,7 +107,6 @@ class CommunityController extends Controller
         return response()->json(['message' => 'Member removed']);
     }
 
-    // Get cross-community activity for a user (fraud prevention)
     public function userActivity(int $userId)
     {
         $user = User::with(['communities' => function ($q) {

@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Community extends Model
 {
-    protected $fillable = ['name', 'description', 'created_by', 'invite_code'];
+    protected $fillable = ['name', 'description', 'created_by', 'invite_code', 'contribution_amount', 'chilimba_enabled'];
 
     public function members()
     {
@@ -26,5 +26,10 @@ class Community extends Model
     public function loans()
     {
         return $this->hasMany(Loan::class);
+    }
+
+    public function contributions()
+    {
+        return $this->hasMany(Contribution::class);
     }
 }

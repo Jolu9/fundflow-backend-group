@@ -6,6 +6,8 @@ use App\Models\Loan;
 use App\Models\ActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class LoanController extends Controller
 {
@@ -22,8 +24,17 @@ class LoanController extends Controller
         }
     }
 
+    private function markOverdue()
+    {
+        Loan::where('status', 'active')
+            ->whereNotNull('due_date')
+            ->where('due_date', '<', Carbon::today())
+            ->update(['status' => 'overdue']);
+    }
+
     public function index()
     {
+        $this->markOverdue();
         return response()->json(Loan::with('user')->latest()->get());
     }
 
@@ -41,8 +52,13 @@ class LoanController extends Controller
         $interest  = $request->interest_rate;
         $total_due = $amount + ($amount * $interest / 100);
 
+        $communityId = DB::table('community_user')
+            ->where('user_id', $request->user_id)
+            ->value('community_id');
+
         $loan = Loan::create([
             'user_id'       => $request->user_id,
+            'community_id'  => $communityId,
             'amount'        => $amount,
             'interest_rate' => $interest,
             'total_due'     => $total_due,
@@ -59,6 +75,7 @@ class LoanController extends Controller
 
     public function show(Loan $loan)
     {
+        $this->markOverdue();
         return response()->json($loan->load('user'));
     }
 
