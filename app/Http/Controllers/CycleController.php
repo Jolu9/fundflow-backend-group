@@ -23,13 +23,21 @@ class CycleController extends Controller
         $request->validate([
             'payout_date' => 'nullable|date',
             'notes' => 'nullable|string',
+            'pot_amount' => 'nullable|numeric|min:0',
         ]);
 
         $communityId = $request->user()->communities()->first()?->id;
+        $community = Community::findOrFail($communityId);
         $lastCycle = Cycle::where('community_id', $communityId)->max('cycle_number');
-        $community = Community::find($communityId);
-        $memberCount = $community->members()->where('community_user.role', 'member')->count();
-        $potAmount = $community->contribution_amount * $memberCount;
+
+        $currentFund = $community->currentFund();
+        $potAmount = $request->pot_amount ?? $currentFund;
+
+        if ($potAmount > $currentFund) {
+            return response()->json([
+                'message' => 'Pot amount cannot exceed available fund (K' . number_format($currentFund, 2) . ')'
+            ], 422);
+        }
 
         $cycle = Cycle::create([
             'community_id' => $communityId,
@@ -43,7 +51,7 @@ class CycleController extends Controller
         return response()->json($cycle->load('recipient'), 201);
     }
 
-    public function assignRecipient(Request $request, $id)
+    public function assignRecipient(Request $request, int $id)
     {
         $request->validate([
             'recipient_id' => 'required|exists:users,id',
@@ -58,7 +66,7 @@ class CycleController extends Controller
         return response()->json($cycle->load('recipient'));
     }
 
-    public function complete($id)
+    public function complete(int $id)
     {
         $cycle = Cycle::findOrFail($id);
         $cycle->update(['status' => 'completed']);
@@ -74,14 +82,6 @@ class CycleController extends Controller
         $communityId = $request->user()->communities()->first()?->id;
         $community = Community::findOrFail($communityId);
         $community->update(['contribution_amount' => $request->contribution_amount]);
-
-        $memberCount = $community->members()->where('community_user.role', 'member')->count();
-        $potAmount = $request->contribution_amount * $memberCount;
-
-        // Backfill any cycles created with K0 pot
-        Cycle::where('community_id', $communityId)
-            ->where('pot_amount', 0)
-            ->update(['pot_amount' => $potAmount]);
 
         return response()->json(['contribution_amount' => $community->contribution_amount]);
     }

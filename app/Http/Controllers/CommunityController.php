@@ -63,13 +63,9 @@ class CommunityController extends Controller
             }])->get();
 
         return $communities->map(function ($community) {
-            $loans = $community->loans;
-            $contributions = $community->contributions;
-
-            $totalContributed = $contributions->sum('amount');
-            $totalDisbursed = $loans->whereNotIn('status', ['pending', 'rejected'])->sum('amount');
-            $totalRepaid = $loans->sum('amount_paid');
-            $currentFund = max(0, $totalContributed + $totalRepaid - $totalDisbursed);
+            $currentFund = $community->currentFund();
+            $totalContributed = $community->contributions->sum('amount');
+            $totalDisbursed = $community->loans->whereNotIn('status', ['pending', 'rejected'])->sum('amount');
 
             $data = $community->toArray();
             $data['fund_summary'] = [
