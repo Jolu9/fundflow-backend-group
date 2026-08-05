@@ -1,25 +1,30 @@
 <?php
+
 namespace App\Models;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+
 use Illuminate\Database\Eloquent\Model;
-class Loan extends Model
+
+class RepaymentRequest extends Model
 {
-    use HasFactory;
     protected $fillable = [
         'user_id',
+        'loan_id',
         'community_id',
         'amount',
-        'interest_rate',
-        'total_due',
-        'amount_paid',
+        'reference_note',
         'status',
-        'due_date',
-        'purpose',
     ];
+
     public function user()
     {
         return $this->belongsTo(User::class);
     }
+
+    public function loan()
+    {
+        return $this->belongsTo(Loan::class);
+    }
+
     public function community()
     {
         return $this->belongsTo(Community::class);
