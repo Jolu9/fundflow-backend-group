@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\JoinRequest;
 use App\Models\Community;
 use Illuminate\Http\Request;
-
+use Illuminate\Support\Facades\Auth;
 class JoinRequestController extends Controller
 {
     // Member: request to join a community
@@ -15,7 +15,7 @@ class JoinRequestController extends Controller
             'community_id' => 'required|exists:communities,id',
         ]);
 
-        $existing = JoinRequest::where('user_id', auth()->id())
+        $existing = JoinRequest::where('user_id', Auth::id())
             ->where('community_id', $request->community_id)
             ->whereIn('status', ['pending', 'approved'])
             ->first();
@@ -26,7 +26,7 @@ class JoinRequestController extends Controller
 
         $joinRequest = JoinRequest::create([
             'community_id' => $request->community_id,
-            'user_id' => auth()->id(),
+            'user_id' => Auth::id(),
             'status' => 'pending',
         ]);
 
