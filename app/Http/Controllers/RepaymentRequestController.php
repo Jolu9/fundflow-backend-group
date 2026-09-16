@@ -22,7 +22,7 @@ class RepaymentRequestController extends Controller
 
         $loan = Loan::where('id', $request->loan_id)
             ->where('user_id', Auth::id())
-            ->where('status', 'active')
+            ->whereIn('status', ['active', 'overdue'])
             ->firstOrFail();
 
         $req = RepaymentRequest::create([
@@ -65,7 +65,8 @@ class RepaymentRequestController extends Controller
     }
 
     // Treasurer: confirm -> creates actual repayment, applies to loan
-    public function confirm($id)
+    // Treasurer: confirm -> creates actual repayment, applies to loan
+    public function confirm(int $id)
     {
         $req = RepaymentRequest::findOrFail($id);
         $req->update(['status' => 'confirmed']);
@@ -84,14 +85,39 @@ class RepaymentRequestController extends Controller
         }
         $loan->save();
 
+        \App\Models\Notification::create([
+            'user_id' => $req->user_id,
+            'type' => 'repayment',
+            'status' => 'confirmed',
+            'title' => "Your repayment of K" . number_format($req->amount) . " was confirmed",
+            'subtitle' => "Applied to your loan balance",
+            'route' => '/member/repayments',
+            'amount' => $req->amount,
+            'notifiable_type' => RepaymentRequest::class,
+            'notifiable_id' => $req->id,
+        ]);
+
         return response()->json($repayment->load('loan.user', 'recordedBy'), 201);
     }
 
     // Treasurer: reject
-    public function reject($id)
+    public function reject(int $id)
     {
         $req = RepaymentRequest::findOrFail($id);
         $req->update(['status' => 'rejected']);
+
+        \App\Models\Notification::create([
+            'user_id' => $req->user_id,
+            'type' => 'repayment',
+            'status' => 'rejected',
+            'title' => "Your repayment of K" . number_format($req->amount) . " was rejected",
+            'subtitle' => "Tap for details",
+            'route' => '/member/repayments',
+            'amount' => $req->amount,
+            'notifiable_type' => RepaymentRequest::class,
+            'notifiable_id' => $req->id,
+        ]);
+
         return response()->json($req);
     }
 }

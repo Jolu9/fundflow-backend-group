@@ -49,4 +49,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(JoinRequest::class);
     }
+
+    public function notifications()
+    {
+        return $this->hasMany(Notification::class);
+    }
 }

@@ -1,7 +1,10 @@
 <?php
+
 namespace App\Models;
+
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+
 class Loan extends Model
 {
     use HasFactory;
@@ -15,7 +18,10 @@ class Loan extends Model
         'status',
         'due_date',
         'purpose',
+        'review_note',
+        'penalty_amount',
     ];
+
     public function user()
     {
         return $this->belongsTo(User::class);

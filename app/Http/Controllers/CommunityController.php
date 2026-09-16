@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Community;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
+
 class CommunityController extends Controller
 {
     public function index()
@@ -26,7 +26,7 @@ class CommunityController extends Controller
         $community = Community::create([
             'name' => $request->name,
             'description' => $request->description,
-            'created_by' => Auth::id(),
+            'created_by' => auth()->id(),
         ]);
 
         $community->members()->attach($request->treasurer_id, ['role' => 'treasurer']);

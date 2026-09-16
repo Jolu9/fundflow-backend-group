@@ -54,8 +54,16 @@ class ContributionRequestController extends Controller
             ->get();
     }
 
+    // Member: see all of their own requests, any status
+    public function mine(Request $request)
+    {
+        return \App\Models\ContributionRequest::where('user_id', Auth::id())
+            ->latest()
+            ->get();
+    }
+
     // Treasurer: confirm a request -> creates actual contribution
-    public function confirm($id)
+    public function confirm(int $id)
     {
         $req = \App\Models\ContributionRequest::findOrFail($id);
         $req->update(['status' => 'confirmed']);
@@ -69,6 +77,39 @@ class ContributionRequestController extends Controller
             'community_id' => $req->community_id,
         ]);
 
+        \App\Models\Notification::create([
+            'user_id' => $req->user_id,
+            'type' => 'contribution',
+            'status' => 'confirmed',
+            'title' => "Your contribution of K" . number_format($req->amount) . " was confirmed",
+            'subtitle' => "Added to the group fund",
+            'route' => '/member/contributions',
+            'amount' => $req->amount,
+            'notifiable_type' => \App\Models\ContributionRequest::class,
+            'notifiable_id' => $req->id,
+        ]);
+
         return response()->json($contribution->load('user', 'recorder'), 201);
+    }
+
+    // Treasurer: reject
+    public function reject(int $id)
+    {
+        $req = \App\Models\ContributionRequest::findOrFail($id);
+        $req->update(['status' => 'rejected']);
+
+        \App\Models\Notification::create([
+            'user_id' => $req->user_id,
+            'type' => 'contribution',
+            'status' => 'rejected',
+            'title' => "Your contribution of K" . number_format($req->amount) . " was rejected",
+            'subtitle' => "Tap for details",
+            'route' => '/member/contributions',
+            'amount' => $req->amount,
+            'notifiable_type' => \App\Models\ContributionRequest::class,
+            'notifiable_id' => $req->id,
+        ]);
+
+        return response()->json($req);
     }
 }

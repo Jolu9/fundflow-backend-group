@@ -11,7 +11,7 @@ use App\Http\Controllers\CommunityController;
 use App\Http\Controllers\JoinRequestController;
 use App\Http\Controllers\CommunityRequestController;
 use App\Http\Controllers\ExportController;
-use App\Http\Controllers\CycleController;
+use App\Http\Controllers\NotificationController;
 
 // Public routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -50,6 +50,8 @@ Route::get('/communities/invite/{code}', function ($code) {
 
 Route::middleware('auth:sanctum')->group(function () {
 
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::post('/notifications/{id}/dismiss', [NotificationController::class, 'dismiss']);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
 
@@ -90,13 +92,23 @@ Route::middleware('auth:sanctum')->group(function () {
     // Users & Loans
     Route::apiResource('users', UserController::class);
     Route::apiResource('loans', LoanController::class);
-
+    Route::patch('/loans/{loan}/edit-terms', [LoanController::class, 'editTerms']);
     // Loan application (member)
     Route::post('/loan-applications', function (\Illuminate\Http\Request $request) {
         $request->validate([
             'amount' => 'required|numeric|min:1',
             'purpose' => 'required|string',
         ]);
+
+        $existingLoan = \App\Models\Loan::where('user_id', $request->user()->id)
+            ->whereIn('status', ['pending', 'active', 'overdue'])
+            ->first();
+
+        if ($existingLoan) {
+            return response()->json([
+                'message' => 'You cannot apply for a new loan until your current loan is fully repaid.'
+            ], 422);
+        }
 
         $communityId = $request->user()->communities()->first()?->id;
 
@@ -131,7 +143,7 @@ Route::middleware('auth:sanctum')->group(function () {
         );
     });
 
-    // Repayments (treasurer direct entry — instant, trusted)
+    // Repayments (treasurer direct entry)
     Route::get('/repayments', function (\Illuminate\Http\Request $request) {
         $communityId = $request->user()->communities()->first()?->id;
         $loanIds = \App\Models\Loan::where('community_id', $communityId)->pluck('id');
@@ -167,7 +179,7 @@ Route::middleware('auth:sanctum')->group(function () {
         return response()->json($repayment->load('loan.user', 'recordedBy'), 201);
     });
 
-    // Member repayments — confirmed history only
+    // Member repayments
     Route::get('/member/repayments', function (\Illuminate\Http\Request $request) {
         $loanIds = \App\Models\Loan::where('user_id', $request->user()->id)->pluck('id');
         return response()->json(
@@ -190,7 +202,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Contribution Requests
     Route::get('/contribution-requests', [ContributionRequestController::class, 'index']);
     Route::post('/contribution-requests', [ContributionRequestController::class, 'store']);
+    Route::get('/contribution-requests/mine', [ContributionRequestController::class, 'mine']);
     Route::post('/contribution-requests/{id}/confirm', [ContributionRequestController::class, 'confirm']);
+    Route::post('/contribution-requests/{id}/reject', [ContributionRequestController::class, 'reject']);
 
     // Stats & Logs
     Route::get('/stats', [\App\Http\Controllers\StatsController::class, 'index']);
@@ -202,15 +216,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Export
     Route::get('/export/report', [ExportController::class, 'report']);
-
-    // Cycles (Chilimba)
-    Route::get('/cycles', [CycleController::class, 'index']);
-    Route::post('/cycles', [CycleController::class, 'store']);
-    Route::post('/cycles/contribution-amount', [CycleController::class, 'setContributionAmount']);
-    Route::post('/cycles/toggle-chilimba', [CycleController::class, 'toggleChilimba']);
-    Route::post('/cycles/{id}/assign', [CycleController::class, 'assignRecipient']);
-    Route::post('/cycles/{id}/complete', [CycleController::class, 'complete']);
-    Route::get('/member/cycles', [CycleController::class, 'memberCycles']);
 
     // Communities
     Route::get('/communities/my', [CommunityController::class, 'myCommunities']);
