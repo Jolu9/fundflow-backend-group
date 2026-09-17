@@ -6,26 +6,31 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-        Schema::create('contributions', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
-            $table->foreignId('recorded_by')->constrained('users')->onDelete('cascade');
-            $table->decimal('amount', 10, 2);
-            $table->date('contribution_date');
-            $table->string('notes')->nullable();
-            $table->timestamps();
+        Schema::table('contributions', function (Blueprint $table) {
+            if (!Schema::hasColumn('contributions', 'user_id')) {
+                $table->foreignId('user_id')->nullable()->constrained('users')->onDelete('cascade');
+            }
+            if (!Schema::hasColumn('contributions', 'recorded_by')) {
+                $table->foreignId('recorded_by')->nullable()->constrained('users')->onDelete('cascade');
+            }
+            if (!Schema::hasColumn('contributions', 'amount')) {
+                $table->decimal('amount', 10, 2)->nullable();
+            }
+            if (!Schema::hasColumn('contributions', 'contribution_date')) {
+                $table->date('contribution_date')->nullable();
+            }
+            if (!Schema::hasColumn('contributions', 'notes')) {
+                $table->string('notes')->nullable();
+            }
         });
     }
-    /**
-     * Reverse the migrations.
-     */
+
     public function down(): void
     {
-        Schema::dropIfExists('contributions');
+        Schema::table('contributions', function (Blueprint $table) {
+            $table->dropColumn(['user_id', 'recorded_by', 'amount', 'contribution_date', 'notes']);
+        });
     }
 };
